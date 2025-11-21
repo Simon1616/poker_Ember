@@ -1,26 +1,23 @@
-"""
-Aggressive Bot - Plays loose and aggressive
-Bets and raises frequently, plays many hands
-"""
 from typing import List, Dict, Any
 import random
+import math
 
 from bot_api import PokerBotAPI, PlayerAction, GameInfoAPI
 from engine.cards import Card, Rank, HandEvaluator
 from engine.poker_game import GameState
 
 
-class AggressiveBot(PokerBotAPI):
+class EmberBot(PokerBotAPI):
     """
-    An aggressive bot that plays loose and raises frequently.
-    Good example of an aggressive playing style.
+    A generally aggressive bot that folds quickly with a poor hand but raises aggressively with a good hand.
     """
     
     def __init__(self, name: str):
         super().__init__(name)
-        self.hands_played = 0
-        self.raise_frequency = 0.5  # Default raise frequency
-        self.play_frequency = 0.8   # Play 80% of hands
+        self.hands_played = 0  # Track hands played
+        self.raise_frequency = 1.0  # Default raise frequency
+        self.play_frequency = 1.0 # Play 100% of hands by default
+        self.is_good_hole = False
         
     def get_action(self, game_state: GameState, hole_cards: List[Card], 
                    legal_actions: List[PlayerAction], min_bet: int, max_bet: int) -> tuple:
@@ -31,25 +28,48 @@ class AggressiveBot(PokerBotAPI):
         else:
             return self._postflop_strategy(game_state, hole_cards, legal_actions, min_bet, max_bet)
 
+        self.raise_frequency = 1.0
+        self.play_frequency = 1.0
+        self.is_good_hole = False
+
     def _preflop_strategy(self, game_state: GameState, hole_cards: List[Card], legal_actions: List[PlayerAction], 
                           min_bet: int, max_bet: int) -> tuple:
         """Aggressive pre-flop strategy"""
-        if random.random() > self.play_frequency:
-            if PlayerAction.CHECK in legal_actions:
-                return PlayerAction.CHECK, 0
-            return PlayerAction.FOLD, 0
-
-        # High probability of raising
-        if PlayerAction.RAISE in legal_actions and random.random() < self.raise_frequency:
-            # Raise 3-4x the big blind
-            raise_amount = min(random.randint(3, 4) * game_state.big_blind, max_bet)
-            raise_amount = max(raise_amount, min_bet)
-            return PlayerAction.RAISE, raise_amount
         
-        if PlayerAction.CALL in legal_actions:
-            return PlayerAction.CALL, 0
-            
-        return PlayerAction.CHECK, 0
+        # Get value of hole cards
+        card1_value = hole_cards[0].rank.value
+        card2_value = hole_cards[1].rank.value
+        card1_suit = hole_cards[0].suit
+        card2_suit = hole_cards[1].suit
+        hole_average = (card1_value + card2_value) / 2
+        hole_suited = card1_suit == card2_suit
+        hole_difference = abs(card1_value - card2_value)
+    
+
+        # Check if hole cards are a pair
+        if hole_average >= 10:
+            if hole_suited and hole_average >= 11 and hole_difference <= 1:
+                self.is_good_hole = True
+            elif card1_value == card2_value:
+                self.is_good_hole = True
+            elif hole_suited and hole_difference <= 1 and hole_average >= 12:
+                if random.random() > 0.05: # 5% chance to raise
+                    return PlayerAction.RAISE, (max_bet - (math.ciel(max_bet / 20)))
+                else:
+                    self.is_good_hole = True
+        
+        if self.is_good_hole == False:
+            self.play_frequency = 0.04
+
+
+        if random.random() < self.play_frequency:
+            if PlayerAction.RAISE in legal_actions and random.random() < self.raise_frequency:
+                    # Raise 3-4x the big blind
+                    raise_amount = min(random.randint(3, 4) * game_state.big_blind, max_bet)
+                    raise_amount = max(raise_amount, min_bet)
+                    return PlayerAction.RAISE, raise_amount
+
+        return PlayerAction.FOLD, 0
 
     def _postflop_strategy(self, game_state: GameState, hole_cards: List[Card], 
                            legal_actions: List[PlayerAction], min_bet: int, max_bet: int) -> tuple:
@@ -59,54 +79,28 @@ class AggressiveBot(PokerBotAPI):
         hand_rank = HandEvaluator.HAND_RANKINGS[hand_type]
 
         # Strong hand (top pair or better)
+        if hand_rank >= HandEvaluator.HAND_RANKINGS['flush']:
+            if random.random() < 0.8: # 80% chance to raise
+                if PlayerAction.RAISE in legal_actions:
+                    return PlayerAction.RAISE, big_blind * 3
+                else:
+                    if PlayerAction.CALL in legal_actions:
+                        return PlayerAction.CALL, 0
+
+        
         if hand_rank >= HandEvaluator.HAND_RANKINGS['pair']:
-            if PlayerAction.RAISE in legal_actions:
-                # Bet 2/3 to full pot
-                raise_amount = min(game_state.pot, max_bet)
-                raise_amount = max(raise_amount, min_bet)
-                return PlayerAction.RAISE, raise_amount
-            if PlayerAction.CALL in legal_actions:
-                return PlayerAction.CALL, 0
-        
-        # Strong draw - play aggressively (semi-bluff)
-        if self._has_strong_draw(all_cards):
-            if PlayerAction.RAISE in legal_actions:
-                 # Bet half pot on a draw
-                raise_amount = min(game_state.pot // 2, max_bet)
-                raise_amount = max(raise_amount, min_bet)
-                return PlayerAction.RAISE, raise_amount
-            if PlayerAction.CALL in legal_actions:
-                return PlayerAction.CALL, 0
+            if random.random() < 0.5: # 50% chance to raise
+                if PlayerAction.RAISE in legal_actions:
+                    return PlayerAction.RAISE, big_blind * 1.2
+            else:
+                if PlayerAction.CHECK in legal_actions:
+                    return PlayerAction.CHECK, 0
 
-        # Bluffing opportunity?
-        # If no one has bet, take a stab at the pot
-        if game_state.current_bet == 0 and PlayerAction.RAISE in legal_actions:
-            bluff_raise = min(game_state.pot // 2, max_bet)
-            bluff_raise = max(bluff_raise, min_bet)
-            if random.random() < 0.25: # Bluff 25% of the time
-                return PlayerAction.RAISE, bluff_raise
+        if random.random() < 0.005: # 0.5% chance to raise
+            if PlayerAction.RAISE in legal_actions:
+                return PlayerAction.RAISE, (max_bet - (math.ciel(max_bet / 20)))
 
-        if PlayerAction.CHECK in legal_actions:
-            return PlayerAction.CHECK, 0
-        
         return PlayerAction.FOLD, 0
-
-    def _has_strong_draw(self, all_cards: List[Card]) -> bool:
-        """Check for strong drawing hands (flush or open-ended straight)"""
-        # Flush draw
-        suits = [card.suit for card in all_cards]
-        for suit in set(suits):
-            if suits.count(suit) == 4:
-                return True
-        
-        # Open-ended straight draw
-        ranks = sorted(list(set(card.rank.value for card in all_cards)))
-        for i in range(len(ranks) - 3):
-            if ranks[i+3] - ranks[i] == 3 and len(ranks) >=4 :
-                return True
-            if set(ranks).issuperset({2,3,4,5}) or set(ranks).issuperset({14,2,3,4}):
-                 return True
-        return False
     
     def hand_complete(self, game_state: GameState, hand_result: Dict[str, Any]):
         self.hands_played += 1
