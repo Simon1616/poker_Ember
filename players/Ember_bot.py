@@ -23,14 +23,15 @@ class EmberBot(PokerBotAPI):
                    legal_actions: List[PlayerAction], min_bet: int, max_bet: int) -> tuple:
         """Play aggressively - bet and raise often"""
         
+        self.raise_frequency = 1.0
+        self.play_frequency = 1.0
+        self.is_good_hole = False
+
         if game_state.round_name == "preflop":
             return self._preflop_strategy(game_state, hole_cards, legal_actions, min_bet, max_bet)
         else:
             return self._postflop_strategy(game_state, hole_cards, legal_actions, min_bet, max_bet)
-
-        self.raise_frequency = 1.0
-        self.play_frequency = 1.0
-        self.is_good_hole = False
+        
 
     def _preflop_strategy(self, game_state: GameState, hole_cards: List[Card], legal_actions: List[PlayerAction], 
                           min_bet: int, max_bet: int) -> tuple:
@@ -53,8 +54,8 @@ class EmberBot(PokerBotAPI):
             elif card1_value == card2_value:
                 self.is_good_hole = True
             elif hole_suited and hole_difference <= 1 and hole_average >= 12:
-                if random.random() > 0.05: # 5% chance to raise
-                    return PlayerAction.RAISE, (max_bet - (math.ciel(max_bet / 20)))
+                if random.random() >= 0.05: # 95% chance to raise
+                    return PlayerAction.RAISE, max(min_bet, min(max_bet, (max_bet - (int(max_bet / 20)))))
                 else:
                     self.is_good_hole = True
         
@@ -80,9 +81,12 @@ class EmberBot(PokerBotAPI):
 
         # Strong hand (top pair or better)
         if hand_rank >= HandEvaluator.HAND_RANKINGS['flush']:
-            if random.random() < 0.8: # 80% chance to raise
+            if random.random() < 0.9: # 90% chance to raise
                 if PlayerAction.RAISE in legal_actions:
-                    return PlayerAction.RAISE, big_blind * 3
+                    if int(game_state.big_blind * 3) < (max_bet - (int(max_bet / 20))):
+                        return PlayerAction.RAISE, max(min_bet, min(max_bet, int(game_state.big_blind * 3)))
+                    else:
+                        return PlayerAction.RAISE, max(min_bet, min(max_bet, (max_bet - (int(max_bet / 20)))))
                 else:
                     if PlayerAction.CALL in legal_actions:
                         return PlayerAction.CALL, 0
@@ -91,14 +95,22 @@ class EmberBot(PokerBotAPI):
         if hand_rank >= HandEvaluator.HAND_RANKINGS['pair']:
             if random.random() < 0.5: # 50% chance to raise
                 if PlayerAction.RAISE in legal_actions:
-                    return PlayerAction.RAISE, big_blind * 1.2
+                    if int(game_state.big_blind * 1.2) < (max_bet - (int(max_bet / 20))):
+                        return PlayerAction.RAISE, max(min_bet, min(max_bet, int(game_state.big_blind * 1.2)))
+                    else:
+                        return PlayerAction.RAISE, max(min_bet, min(max_bet, (max_bet - (int(max_bet / 20)))))
+
+                        
             else:
                 if PlayerAction.CHECK in legal_actions:
                     return PlayerAction.CHECK, 0
 
+                elif PlayerAction.CALL in legal_actions:
+                    return PlayerAction.CALL, 0
+
         if random.random() < 0.005: # 0.5% chance to raise
             if PlayerAction.RAISE in legal_actions:
-                return PlayerAction.RAISE, (max_bet - (math.ciel(max_bet / 20)))
+                return PlayerAction.RAISE, max(min_bet, min(max_bet, (max_bet - (int(max_bet / 20)))))
 
         return PlayerAction.FOLD, 0
     
