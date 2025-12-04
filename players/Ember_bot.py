@@ -70,7 +70,7 @@ class EmberBot(PokerBotAPI):
                     raise_amount = max(raise_amount, min_bet)
                     return PlayerAction.RAISE, raise_amount
             
-        if game_state.get_position_info == "is_last":
+        if GameInfoAPI.get_position_info(game_state, player_name = "Ember_bot") == "is_last":
             if PlayerAction.CHECK in legal_actions:
                 return PlayerAction.CHECK, 0
 
